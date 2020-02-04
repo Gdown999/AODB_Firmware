@@ -7,13 +7,8 @@
 #include "keyCode.h"
 #include "fastIO.h"
 #include "I2CEEPROM.h"
-//#include "func.h"
 #include "loopTime.h"
-/*#include <frequencyToNote.h>
-#include <MIDIUSB.h>
-#include <MIDIUSB_Defs.h>
-#include <pitchToFrequency.h>
-#include <pitchToNote.h>*/
+
 U8GLIB_SSD1306_128X32 u8g(U8G_I2C_OPT_DEV_0|U8G_I2C_OPT_FAST);
 //ダイオードは縦配線から横配線へ流れるようにつなぐ
 ////////////////////////////////////////////////////////////
