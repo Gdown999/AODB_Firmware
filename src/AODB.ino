@@ -1,8 +1,14 @@
 #include <Keyboard.h>
 #include <Mouse.h>
 #include "U8glib.h"
-#include "Keydefine.h"
 #include <Wire.h>
+
+#include "Keydefine.h"
+#include "keyCode.h"
+#include "fastIO.h"
+#include "I2CEEPROM.h"
+//#include "func.h"
+#include "loopTime.h"
 /*#include <frequencyToNote.h>
 #include <MIDIUSB.h>
 #include <MIDIUSB_Defs.h>
@@ -11,55 +17,17 @@
 U8GLIB_SSD1306_128X32 u8g(U8G_I2C_OPT_DEV_0|U8G_I2C_OPT_FAST);
 //ダイオードは縦配線から横配線へ流れるようにつなぐ
 ////////////////////////////////////////////////////////////
+//serial0設定
+String serial_str;
+bool serialProcess = 0;
+////////////////////////////////////////////////////////////
 //timer
-unsigned long arduino_time;
-int ArTiHz;
-long loading = 0;
-int timeCount;
-const byte register_num[2][22] = {//１段目はポート番号(Aが最初、1から始まる)(0は無効)、２段目はビット番号
-///0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17 18 19 20 21
-  {4, 4, 4, 4, 4, 3, 4, 5, 2, 2, 2, 0, 0, 0, 2, 2, 2, 0, 6, 6, 6, 6,},
-  {2, 3, 1, 0, 4, 6, 7, 6, 4, 5, 6, 0, 0, 0, 3, 1, 2, 0, 7, 6, 5, 4,},
-};
-///////////////////////////////////////////////////////////
-//RW
-bool Loop = true;
-const char keyCode[219][5] PROGMEM = {//KC
-  //0      1      2      3      4      5      6      7      8      9      A      B      C      D      E      F
-  "NUL" ,"SOH" ,"STX" ,"ETX" ,"EOT" ,"ENQ" ,"ACK" ,"BEL" ,"BS"  ,"TAB" ,"LF"  ,"VT"  ,"FF"  ,"CR"  ,"SO"  ,"SI"  ,//0
-  "DLE" ,"DC1" ,"DC2" ,"DC3" ,"DC4" ,"NAK" ,"SYN" ,"ETB" ,"CAN" ,"EM"  ,"SUB" ,""    ,"FS"  ,"GS"  ,"RS"  ,"US"  ,//1
-  "SPC" ,"EXLM","DQUO","HASH","DLR" ,"PERC","AMPR","QUOT","LPRN","RPRN","ASTR","PLUS","COMM","MINS","DOT" ,"SLSH",//2
-  "0"   ,"1"   ,"2"   ,"3"   ,"4"   ,"5"   ,"6"   ,"7"   ,"8"   ,"9"   ,"COLN","SCLN","LABK","EQL" ,"RABK","QUES",//3
-  "AT"  ,"SFTA","SFTB","SFTC","SFTD","SFTE","SFTF","SFTG","SFTH","SFTI","SFTJ","SFTK","SFTL","SFTM","SFTN","SFTO",//4
-  "SFTP","SFTQ","SFTR","SFTS","SFTT","SFTU","SFTV","SFTW","SFTX","SFTY","SFTZ","LBRC","BSLS","RBRC","CIRC","ANBR",//5
-  "GRV" ,"A"   ,"B"   ,"C"   ,"D"   ,"E"   ,"F"   ,"G"   ,"H"   ,"I"   ,"J"   ,"K"   ,"L"   ,"M"   ,"N"   ,"O"   ,//6
-  "P"   ,"Q"   ,"R"   ,"S"   ,"T"   ,"U"   ,"V"   ,"W"   ,"X"   ,"Y"   ,"Z"   ,"LCBR","PIPE","RCBR",""    ,"DEL" ,//7
-  "LCTL","LSFT","LALT","LGUI","RCTL","RSFT","RALT","RGUI",""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,//8
-  ""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,//9
-  ""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,//A
-  "ENT" ,"ESC" ,"BSPC","TAB" ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,//B
-  ""    ,"CAPS","F1"  ,"F2"  ,"F3"  ,"F4"  ,"F5"  ,"F6"  ,"F7"  ,"F8"  ,"F9"  ,"F10" ,"F11" ,"F12" ,""    ,""    ,//C
-  ""    ,"INS" ,"HOME","PGUP","DEL" ,"END" ,"PGDN","RGHT","LEFT","DOWN","UP"  ,                                   //D
-};
-const char mouseCode[6][5] PROGMEM = {//MC
-  //0      1      2      3      4      5      6      7      8      9      A      B      C      D      E      F
-  "LC"  ,"RC"  ,"MC"  ,"HU"  ,"HD"  ,"P"//0
-};
-const char layerCode[4][5] PROGMEM = {//LAY
-  //0      1      2      3      4      5      6      7      8      9      A      B      C      D      E      F
-  "00"  ,"01"  ,"02"  ,"03"//0
-};
-const char customCode[16][5] PROGMEM = {//CC
-  //0      1      2      3      4      5      6      7      8      9      A      B      C      D      E      F
-  "OSU" ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,""    ,//0
-};
+loopTime AODBLoopTime;
 ////////////////////////////////////////////////////////////
 //EEPROM
-#define EEPROM_ADDRESS 0x50
+I2CEEPROM AODBROM = I2CEEPROM(0x50);
 ////////////////////////////////////////////////////////////
 //oled
-unsigned long oledSleep_time;
-bool oledState = 0;//oledが光っているなら真、消えているなら偽
 byte oled_X;
 byte oled_Y;
 byte key_BoxX;
@@ -80,16 +48,16 @@ bool ser1_joyState;
 byte ser1_joynum;
 /////////////////////////////////////////////////////////////////
 //↓キーボード設定
-#define division_num 2 //キーボードの分割数
-#define layerNum 3 //レイヤーの数
-const byte direction[division_num] = {0,1}; //01:Left, 10:Right
+const bool left_right_which = 0; //0:Left, 1:Right
+const byte divisionNum = 2; //キーボードの分割数
+const byte layerNum = 3; //レイヤーの数
 const byte rowNum = 4; //縦に並んでいるピン数
 const byte colNum = 7; //横に並んでいるピン数
 const byte rowPin[rowNum] = {4, 5, 6, 7}; //横列のピン番号
 const byte colPin[colNum] = {21, 20, 19, 18, 15, 14, 16 }; //縦列のピン番号
-word keyMap[division_num][rowNum][colNum];
-word keyMap_temp[division_num][rowNum][colNum];
-/*word keyMap_QWERTY[division_num][rowNum][colNum] =
+word keyMap[divisionNum][rowNum][colNum];
+word keyMap_temp[divisionNum][rowNum][colNum];
+/*word keyMap_QWERTY[divisionNum][rowNum][colNum] =
 {{
   {KC_ESC , KC_1   , KC_2   , KC_3   , KC_4   , KC_5   , KC_____ },
   {KC_TAB , KC_Q   , KC_W   , KC_E   , KC_R   , KC_T   , KC_CAPS },
@@ -146,17 +114,6 @@ char* trimStr_serial[] =//どういう情報が送られてきたか判断する
 //         0        1       2       3       4      5       6     7         8        9
   {"maplist","serial", "oled", "OLED","OLMAX","time","ASCII","BIN","keycode","RW",};
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//経過時間関数
-void loopTime(void){
-  arduino_time = micros() - arduino_time;
-  if (timeCount > 0 || timeCount == -1) {
-    ArTiHz = abs(1000000/arduino_time);
-    Serial.print(ArTiHz); Serial.print("Hz--"); Serial.print(arduino_time); Serial.println(F("ns"));
-    if(timeCount != -1)timeCount -= 1;
-  }
-  arduino_time = micros();
-}
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //OLED表示メゾット（X座標、Y座標、”表示文字列”、二倍拡大有無）
 void OLED_drawStr(byte X, byte Y, char* str, bool Twice) {
   u8g.firstPage();
@@ -170,6 +127,7 @@ void OLED_drawStr(byte X, byte Y, char* str, bool Twice) {
 /////////////////////////////////////////////////////////////////
 //切り替えアニメーション関数
 void switchAnimation(void){
+  long loading = 0;
   bool Loop = true;
   bool loading_Return = true;
   unsigned long loading_interval = 0;
@@ -215,29 +173,6 @@ void switchAnimation(void){
   } while ( u8g.nextPage() );
 }
 /////////////////////////////////////////////////////////////////
-//キーマップ書き換えメゾット(キーマップ変数、ジョイススティックキーマップ変数、決定ボタン座標Y、決定ボタン座標X、OLED表示名)
-/*void keyMap_Rewrite(word tmp_ary[division_num][rowNum][colNum], word tmp_JS[2][4], char* OLED_str) {
-  for (byte l = 0; l < division_num; l++) {
-    for (byte i = 0; i < rowNum; i++) {
-      for (byte j = 0; j < colNum; j++) {
-        if (l) {
-          keyMap[l][i][colNum-1-j] = tmp_ary[l][i][j];//物理的な反転を書き込み時に修正する
-        }else{
-          keyMap[l][i][j] = tmp_ary[l][i][j];
-        }
-      }
-    }
-  }
-  for(byte i = 0; i < 2; i++) {
-    for (byte j = 0; j < 4; j++) {
-      JSkeyMap[i][j] = tmp_JS[i][j];
-    }
-  }
-  OLED_drawStr(0, 12, OLED_str, 0);
-  Serial.print(F("KeyMap:"));
-  Serial.println(OLED_str);
-}*/
-/////////////////////////////////////////////////////////////////
 //キーマップ切り替えメゾット
 void keyMap_switch(word c){
   switch (c) {
@@ -246,53 +181,30 @@ void keyMap_switch(word c){
   }
 }
 /////////////////////////////////////////////////////////////////
-//http://radiopench.blog96.fc2.com/blog-entry-576.html
-void i2cEEPROM_write(unsigned int eeADR, byte data ) {
-  Wire.beginTransmission(EEPROM_ADDRESS);               // i2cアドレス指定
-  Wire.write((int)(eeADR >> 8));                // EEPROM内アドレス指定 MSB
-  Wire.write((int)(eeADR & 0xFF));              // LSB
-  Wire.write(data);
-  Wire.endTransmission();
-  delay(5);                                     // 書き込み完了待ち
-}
-/////////////////////////////////////////////////////////////////
-byte i2cEEPROM_read(unsigned int eeADR) {
-  byte data;
-  Wire.beginTransmission(EEPROM_ADDRESS);               // i2cアドレス指定
-  Wire.write((int)(eeADR >> 8));                // EEPROM内アドレス指定 MSB
-  Wire.write((int)(eeADR & 0xFF));              // LSB
-  Wire.endTransmission();
-  Wire.requestFrom(EEPROM_ADDRESS, 1);                  // 1バイトデータリクエスト
-  while (Wire.available()) {                    //
-    data = Wire.read();                         // データ受信
-  }
-  return data;
-}
-/////////////////////////////////////////////////////////////////
 //キーマップeeprom書き込み関数
 void KMeepromWrite(unsigned int address){
-  byte highByte = 0;
-  byte lowByte = 0;
+  byte UpperByte = 0;
+  byte LowerByte = 0;
   address = address * 400;
-  for (byte l = 0; l < division_num; l++) {
+  for (byte l = 0; l < divisionNum; l++) {
     for (byte i = 0; i < rowNum; i++) {
       for (byte j = 0; j < colNum; j++) {
-        highByte = keyMap_temp[l][i][j] >> 8;
-        lowByte = keyMap_temp[l][i][j] & 0xFF;
-        i2cEEPROM_write(address,highByte);
+        UpperByte = keyMap_temp[l][i][j] >> 8;
+        LowerByte = keyMap_temp[l][i][j] & 0xFF;
+        AODBROM.write(address,UpperByte);
         address++;
-        i2cEEPROM_write(address,lowByte);
+        Serial.print(AODBROM.write(address,LowerByte));
         address++;
       }
     }
   }
   for(byte i = 0; i < 2; i++) {
     for (byte j = 0; j < 4; j++) {
-      highByte = JSkeyMap_temp[i][j] >> 8;
-      lowByte = JSkeyMap_temp[i][j] & 0xFF;
-      i2cEEPROM_write(address,highByte);
+      UpperByte = JSkeyMap_temp[i][j] >> 8;
+      LowerByte = JSkeyMap_temp[i][j] & 0xFF;
+      AODBROM.write(address,UpperByte);
       address++;
-      i2cEEPROM_write(address,lowByte);
+      AODBROM.write(address,LowerByte);
       address++;
     }
   }
@@ -300,31 +212,31 @@ void KMeepromWrite(unsigned int address){
 /////////////////////////////////////////////////////////////////
 //キーマップeeprom読み取り関数
 void KMeepromRead(word address){
-  byte highByte = 0;
-  byte lowByte = 0;
+  byte UpperByte = 0;
+  byte LowerByte = 0;
   address = address * 400;//マップブロック番号をアドレスに変換
-  for (byte l = 0; l < division_num; l++) {
+  for (byte l = 0; l < divisionNum; l++) {
     for (byte i = 0; i < rowNum; i++) {
       for (byte j = 0; j < colNum; j++) {
-        highByte = i2cEEPROM_read(address);
+        UpperByte = AODBROM.read(address);
         address++;
-        lowByte = i2cEEPROM_read(address);
+        LowerByte = AODBROM.read(address);
         address++;
         if (l) {
-          keyMap[l][i][colNum-1-j] = highByte << 8 | lowByte;
+          keyMap[l][i][colNum-1-j] = UpperByte << 8 | LowerByte;
         }else{
-          keyMap[l][i][j] = highByte << 8 | lowByte;
+          keyMap[l][i][j] = UpperByte << 8 | LowerByte;
         }
       }
     }
   }
   for(byte i = 0; i < 2; i++) {
     for (byte j = 0; j < 4; j++) {
-      highByte = i2cEEPROM_read(address);
+      UpperByte = AODBROM.read(address);
       address++;
-      lowByte = i2cEEPROM_read(address);
+      LowerByte = AODBROM.read(address);
       address++;
-      JSkeyMap[i][j] = highByte << 8 | lowByte;
+      JSkeyMap[i][j] = UpperByte << 8 | LowerByte;
     }
   }
 }
@@ -370,38 +282,6 @@ void key_release(int key_code){
   }
 }
 /////////////////////////////////////////////////////////////////
-bool fast_digitalRead(byte pin){//（読み取り高速化関数）
- bool State;
-  switch (register_num[0][pin]) {
-    case 2:State = PINB & _BV(register_num[1][pin]);break;
-    case 3:State = PINC & _BV(register_num[1][pin]);break;
-    case 4:State = PIND & _BV(register_num[1][pin]);break;
-    case 5:State = PINE & _BV(register_num[1][pin]);break;
-    case 6:State = PINF & _BV(register_num[1][pin]);break;
-  }
-  return State;
-}
-/////////////////////////////////////////////////////////////////
-void fast_digitalWrite_HIGH(byte pin){
-  switch (register_num[0][pin]) {
-    case 2:PORTB |= _BV(register_num[1][pin]);break;
-    case 3:PORTC |= _BV(register_num[1][pin]);break;
-    case 4:PORTD |= _BV(register_num[1][pin]);break;
-    case 5:PORTE |= _BV(register_num[1][pin]);break;
-    case 6:PORTF |= _BV(register_num[1][pin]);break;
-  }
-}
-/////////////////////////////////////////////////////////////////
-void fast_digitalWrite_LOW(byte pin){
-  switch (register_num[0][pin]) {
-    case 2:PORTB &= ~_BV(register_num[1][pin]);break;
-    case 3:PORTC &= ~_BV(register_num[1][pin]);break;
-    case 4:PORTD &= ~_BV(register_num[1][pin]);break;
-    case 5:PORTE &= ~_BV(register_num[1][pin]);break;
-    case 6:PORTF &= ~_BV(register_num[1][pin]);break;
-  }
-}
-/////////////////////////////////////////////////////////////////
 //マウス時間制御（X進行方向、Y進行方向、移動時間ミリ、待機時間ミクロ）
 /*void Mouse_timer(int X_move, int Y_move, int index, int stop) {
   unsigned long time = millis();
@@ -437,45 +317,6 @@ void OSUkey_release(void){
     Key_OSUindex_out = 0;
   }
 }
-/////////////////////////////////////////////////////////////////
-//ASCII確認
-
-/////////////////////////////////////////////////////////////////
-//ASCII確認
-/*void ASCII_check(void){
-  while (!llkeylloop());//どれか一つキーが押されるまで待機
-  for (byte i = 32; i <= 126; i++) {
-    if( i != 96){
-      loopTime();
-      Keyboard.print(i);
-      if(i < 100)Keyboard.write(32);
-      if(i < 10)Keyboard.write(32);
-      Keyboard.write(39);
-      Keyboard.write(i);
-      Keyboard.write(KC_MINS);
-      Keyboard.write(KC_MINS);
-      Keyboard.write(KC_MINS);
-      Keyboard.press(KC_LSFT);
-      Keyboard.write(i);
-      Keyboard.release(KC_LSFT);
-      Keyboard.write(176);
-    }
-  }
-}
-/////////////////////////////////////////////////////////////////
-//キーコードシリアルプリント
-void keyCodePrint(void){
-  for (int i = 0; i < 135; i++) {
-    char buf[4];
-    for (byte j = 0 ; j < 4 ; j++){
-      buf[j] = pgm_read_byte(keyCode[i] + j);
-    }
-    Serial.println(buf);
-  }
-}*/
-/////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 void setup() {
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
   byte i, j;
@@ -494,7 +335,7 @@ void setup() {
     digitalWrite(rowPin[i], HIGH);
   }
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  for (byte JS = 0 ; JS < 2 ; JS++) pinMode(stk_pins[JS], INPUT); //ジョイスティックピンをインプットに設定
+  for (byte i = 0 ; i < 2 ; i++) pinMode(stk_pins[i], INPUT); //ジョイスティックピンをインプットに設定
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
   Serial.begin(115200); //シリアル通信を開始
   Serial1.begin(115200);
@@ -518,7 +359,7 @@ void setup() {
   keyMap_switch(0);
   u8g.firstPage();
   do {
-    if(direction[0])u8g.setRot180();
+    if(left_right_which)u8g.setRot180();
     u8g.setFont(u8g_font_profont15r);
     u8g.drawStr( 44, 16, F("A0DBv2"));
     u8g.drawFrame(37, 1, 58, 20);
@@ -526,23 +367,22 @@ void setup() {
 }
 /////////////////////////////////
 void loop() {
-  String serial_str;
-  bool loopReset = 1;
-  while (loopReset) {
-    loopTime();
+  while (1) {
+    AODBLoopTime.loopTimeCheck();
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
     //シリアルループ
     char buf;
     if((buf = Serial.read()) != -1){
       if (String(buf) == String(";")){
-        Serial.println("");
-        loopReset = 0;
+        Serial.println(";");
+        serialProcess = 1;
       }else{
         serial_str += buf;
         Serial.print(buf);
       }
     }
-    if (!loopReset){//シリアル終端文字が入力されると必然的にループリセットがかかるのでそれを条件に使用
+    if (serialProcess){//シリアル終端文字が入力されると必然的にループリセットがかかるのでそれを条件に使用
+      serialProcess = 0;
 
       Keyboard.releaseAll();
       for (byte i = 0; i < rowNum; i++) {//キーボードの状態をリセット
@@ -569,10 +409,10 @@ void loop() {
             case 2:OLED_drawStr(0, 12, serial_str.c_str(), 0);break;                               //通常サイズの文字を表示
             case 3:OLED_drawStr(0, 12, serial_str.c_str(), 1);break;                               //倍サイズの文字を表示
             case 4:u8g.firstPage();do {u8g.drawBox(0, 0, 128, 32);} while ( u8g.nextPage() );break;//OLEDをすべて白光
-            case 5:timeCount = serial_str.toInt();break;                                          //プログラムが一周にかかる時間を出力
-            //case 6:ASCII_check();break;                                                            //通常のキーの一覧を出力
-            case 7:Serial.println(serial_str.toInt(),BIN);break;                                     //受信したデータの2進数を返す
-            //case 8:keyCodePrint();break;                                                           //シリアルにキーコード符号を出力
+            case 5:AODBLoopTime.setCount(serial_str.toInt());break;                                //プログラムが一周にかかる時間を出力
+            //case 6:ASCII_check();break;                                                          //通常のキーの一覧を出力
+            case 7:Serial.println(serial_str.toInt(),BIN);break;                                   //受信したデータの2進数を返す
+            //case 8:keyCodePrint();break;                                                         //シリアルにキーコード符号を出力
             case 9:
             byte keyMap_num;                                                                //キーマップをシリアル経由で書き換え
             Serial.println(F("RW##########################################################"));
@@ -614,10 +454,11 @@ void loop() {
             byte tmpMap_col = 0;
             byte tmpMap_din = 0;
             byte matrixNum = 0;
+            bool rwError = 0;
             const byte trimStr_KR_count = 11;//符号の種類の数
             const char* trimStr_KR[] =//どういう情報が送られてきたか判断するための符号
             //0      1      2      3      4      5      6      7      8      9     10
-            {"K{"  ,"J{"  ,"{"   ,"KC_" ,"MC_" ,"LAY_","CC_" ,","   ,"},"  ,"}."  ,"}"   };
+            {"K{"  ,"J{"  ,"{"   ,"KC_" ,"MC_" ,"LAY_","CC_" ,","   ,"},"  ,"}."  ,"}"};
             while (llkeylloop());
             do {
               for(byte i = 0; i < trimStr_KR_count; i++){//文字列の種類の数だけループ
@@ -689,22 +530,42 @@ void loop() {
                           case 2:JSkeyMap_temp[tmpMap_row][tmpMap_col] = 0x00;break;
                         }
                         break;
+                      }else if(codeNum == 218){
+                        Serial.print(F("###"));
+                        Serial.print(strKey_code);
+                        Serial.println(F("###"));
+                        switch (matrixNum) {
+                          case 1:keyMap_temp[tmpMap_din][tmpMap_row][tmpMap_col] = 0x00;break;
+                          case 2:JSkeyMap_temp[tmpMap_row][tmpMap_col] = 0x00;break;
+                        }
+                        Serial.println(F("#####キーコード検出不可"));
+                        rwError = 1;
                       }
                     }
                   }
                   break;
+                }else if(i == trimStr_KR_count-1){
+                  Serial.println(F("#####符号検出不可"));
+                  goto RWERROR;
                 }
               }
             } while(Loop);
-            Serial.println(F("書き込み中"));
-            KMeepromWrite(keyMap_num);
-            Serial.println(F("完了"));
+            if(rwError){
+              RWERROR:
+              serial_str.remove(0);
+              Serial.println(F("書き込み不可"));
+            }else{
+              Serial.println(F("書き込み中"));
+              KMeepromWrite(keyMap_num);
+              Serial.println(F("完了"));
+              break;//switch
+            }
             Serial.println(F("############################################################"));
-            break;//switch
           }
           break;
         }
       }
+      serial_str.remove(0);
     }
     /////////////////////////////////////↓キー検出
     for (byte i = 0; i < rowNum; i++) {
@@ -723,7 +584,7 @@ void loop() {
       pos[JS] = (abs(vr[JS]) < VR_IDLE) ? 0 : vr[JS] - (VR_IDLE * deg); //一定範囲の値は０に書き換える（補正範囲）
       pos[JS] = constrain(pos[JS], VRNG * -1, VRNG);  //生の値の最小値と最大値の絶対値が異なるのでそろえる
     }
-    if (direction[1]) {
+    if (!left_right_which) {
       pos[0] *= -1;
       pos[1] *= -1;
     }else{
@@ -764,172 +625,142 @@ void loop() {
       currentJS[2] = true;
       //Serial.print("↓→---");
     }
-    //if(Serial){////////////////////////////////ホスト処理
-      switch (Switch_KMode) {
-        case 1 : /////////////////////////////////////////////////////////キーボードモード
-        if (currentState[Switch_key[0][0]][Switch_key[0][1]] == LOW &&//キーマップ切り替え呼び出し
-            currentState[Switch_key[1][0]][Switch_key[1][1]] == LOW &&
-            currentState[Switch_key[2][0]][Switch_key[2][1]] == LOW) {
-          for (int a = 0; a < 3; a++) {
-            currentState[Switch_key[a][0]][Switch_key[a][1]] = HIGH;
-            Keyboard.release(keyMap[direction[0]][Switch_key[a][0]][Switch_key[a][1]]);
-            //ser1_send = 0 << 7 | Switch_key[a][1] << 3 | Switch_key[a][0];//0 0000 000
-            //Serial1.write(ser1_send);
-          }
-          Serial.println(F("切り替えモード"));
-          bool Loop_in = true;
-          do {//切り替えスイッチがまだ押されていたらここでせき止める
-            for (byte z = 0; z < rowNum; z++) {
-              digitalWrite( rowPin[z], LOW );
-              for (byte x = 0; x < colNum; x++) {
-                changeState[z][x] = digitalRead(colPin[x]);
-              }
-              digitalWrite( rowPin[z], HIGH );
-            }
-            if ( changeState[Switch_key[0][0]][Switch_key[0][1]] == HIGH &&
-                 changeState[Switch_key[1][0]][Switch_key[1][1]] == HIGH &&
-                 changeState[Switch_key[2][0]][Switch_key[2][1]] == HIGH )Loop_in = false;
-          } while (Loop_in);
-          switchAnimation();
-          ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-        } else {
-          for (byte i = 0; i < rowNum; i++) {
-            for (byte j = 0; j < colNum; j++) {
-              if ( currentState[i][j] != beforeState[i][j] ) { //前回とキーの状態が違えば実行
-                if ( currentState[i][j] == LOW) { //スイッチの状態を参照し、押されている場合実行
-                  key_press(keyMap[direction[0]][i][j]);//キー押し込み
-                  ser1_send_key = i << 5 | j << 2 | 1 << 1 | 1;//000 000 0 0
-                }else{ //スイッチの状態を参照し、離されている場合実行
-                  key_release(keyMap[direction[0]][i][j]);//キー解除
-                  ser1_send_key = i << 5 | j << 2 | 0 << 1 | 1;//000 000 0 0
-                }
-
-                u8g.firstPage();
-                do {/////////////////////////////////↓oled常時処理
-                  for (byte i = 0; i < rowNum; i++) {
-                    for (byte j = 0; j < colNum; j++) {
-                      if(currentState[i][j] == LOW){//落
-                        if(direction[1]){
-                          u8g.drawBox((key_BoxX*(rowNum-1-i)), (key_BoxY*j), key_BoxX, key_BoxY);
-                        }else{
-                          u8g.drawBox((key_BoxX*i), (key_BoxY*j), key_BoxX, key_BoxY);
-                        }
-                      /*}else{
-                        if(direction[1]){
-                          u8g.drawFrame((key_BoxX*(rowNum-1-i)), (key_BoxY*j), key_BoxX, key_BoxY);
-                        }else{
-                          u8g.drawFrame((key_BoxX*i), (key_BoxY*j), key_BoxX, key_BoxY);
-                        }*/
-                      }
-                    }
-                  }
-                } while ( u8g.nextPage() );
-
-                /*Serial1.write(ser1_send_key);
-                Serial.print(i);Serial.print(',');
-                Serial.print(j);Serial.print(',');
-                Serial.println(keyMap[direction[0]][i][j],HEX);//Serial.print(',');*/
-              }
-            }
-          }
+    switch (Switch_KMode) {
+      case 1 : /////////////////////////////////////////////////////////キーボードモード
+      if (currentState[Switch_key[0][0]][Switch_key[0][1]] == LOW &&//キーマップ切り替え呼び出し
+          currentState[Switch_key[1][0]][Switch_key[1][1]] == LOW &&
+          currentState[Switch_key[2][0]][Switch_key[2][1]] == LOW) {
+        for (int a = 0; a < 3; a++) {
+          currentState[Switch_key[a][0]][Switch_key[a][1]] = HIGH;
+          Keyboard.release(keyMap[left_right_which][Switch_key[a][0]][Switch_key[a][1]]);
+          //ser1_send = 0 << 7 | Switch_key[a][1] << 3 | Switch_key[a][0];//0 0000 000
+          //Serial1.write(ser1_send);
         }
-        //////////////////////////////////////////
-        if (JSkeyMap[0] == MC_P) {
-          for (int i = 0; i < 2; i++) {
-            if (pos[i] != 0) {
-              if (pos[i] >= PDz || pos[i] <= -PDz) {
-                M_point[i] = pos[i] / 220;
-                if (i == 0)Mouse.move(M_point[0], 0 , 0);
-                if (i == 1)Mouse.move(0, M_point[1], 0);
-              } else {
-                M_PP[i] = map( pos[i], 0, PDz - 1, 3, 1);
-                if (MTime[i] + M_PP[i] < millis()) {
-                  if (i == 0){
-                    if (pos[i] > 0)Mouse.move(1, 0 , 0);
-                    if (pos[i] < 0)Mouse.move(-1, 0 , 0);
-                  }else if (i == 1){
-                    if (pos[i] < 1)Mouse.move(0 , -1 , 0);
-                    if (pos[i] > 1)Mouse.move(0 , 1 , 0);
-                  }
-                  MTime[i] = millis();
-                }
-              }
+        Serial.println(F("切り替えモード"));
+        bool Loop_in = true;
+        do {//切り替えスイッチがまだ押されていたらここでせき止める
+          for (byte z = 0; z < rowNum; z++) {
+            digitalWrite( rowPin[z], LOW );
+            for (byte x = 0; x < colNum; x++) {
+              changeState[z][x] = digitalRead(colPin[x]);
             }
+            digitalWrite( rowPin[z], HIGH );
           }
-        } else {
-          for (int i = 0; i < 4; i++) {
-            if (beforeJS[i] != currentJS[i]) {
-              if (currentJS[i] == true) {
-                key_press(JSkeyMap[direction[0]][i]);
-                ser1_send_joy = 0b0000 << 4 | i << 2 | 1 << 1 | 0;//0000 00 0 0
-              } else if (currentJS[i] == false) {
-                key_release(JSkeyMap[direction[0]][i]);
-                ser1_send_joy = 0b0000 << 4 | i << 2 | 0 << 1 | 0;//0000 00 0 0
-              }
-              Serial1.write(ser1_send_joy);
-            }
-            beforeJS[i] = currentJS[i];
-          }
-        }
-        break;
-      }/////////////////////////////////////////////ser1受信処理↓
-      //////////////////// mode  joy  keypush?  1:key?0:mode? | row  col keypush? 0:joy?1:key?
-      //////////////////// 0000   00      0           0       | 000  000    0          1
-      byte ser1_count = Serial1.available();//受信数を記録
-      if(ser1_count){//１つでも受信しているなら実行
-        for(byte i = 0; i < ser1_count; i++){//複数ある場合繰り返して実行
-          ser1_recv = Serial1.read();
-          if(ser1_recv & 1){//キー座標処理
-            ser1_keyState = ser1_recv >> 1 & 0b00000001;
-            ser1_col = ser1_recv >> 2 & 0b00000111;
-            ser1_row = ser1_recv >> 5 & 0b00000111;
-
-            if(ser1_keyState){
-              key_press(keyMap[direction[1]][ser1_row][ser1_col]);
-            }else{
-              key_release(keyMap[direction[1]][ser1_row][ser1_col]);
-            }
-          }else{//キー状態、ジョイスティック、モード処理
-            ser1_joyState = ser1_recv >> 1 & 0b00000001;
-            ser1_joynum = ser1_recv >> 2 & 0b00000011;
-            //Serial.println(ser1_recv,BIN);
-            if(ser1_joyState){
-              key_press(JSkeyMap[direction[1]][ser1_joynum]);
-            }else{
-              key_release(JSkeyMap[direction[1]][ser1_joynum]);
-            }
-          }
-          //Serial.println(ser1_recv,BIN);
-        }
-      }
-    /*}else{///////////////////////////////////////////////////ゲスト処理
-      switch (Switch_KMode) {
-        case 1 :
+          if ( changeState[Switch_key[0][0]][Switch_key[0][1]] == HIGH &&
+               changeState[Switch_key[1][0]][Switch_key[1][1]] == HIGH &&
+               changeState[Switch_key[2][0]][Switch_key[2][1]] == HIGH )Loop_in = false;
+        } while (Loop_in);
+        switchAnimation();
+        ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+      } else {
         for (byte i = 0; i < rowNum; i++) {
           for (byte j = 0; j < colNum; j++) {
             if ( currentState[i][j] != beforeState[i][j] ) { //前回とキーの状態が違えば実行
               if ( currentState[i][j] == LOW) { //スイッチの状態を参照し、押されている場合実行
+                key_press(keyMap[left_right_which][i][j]);//キー押し込み
                 ser1_send_key = i << 5 | j << 2 | 1 << 1 | 1;//000 000 0 0
               }else{ //スイッチの状態を参照し、離されている場合実行
+                key_release(keyMap[left_right_which][i][j]);//キー解除
                 ser1_send_key = i << 5 | j << 2 | 0 << 1 | 1;//000 000 0 0
               }
               Serial1.write(ser1_send_key);
+              u8g.firstPage();
+              do {/////////////////////////////////↓oled常時処理
+                for (byte i = 0; i < rowNum; i++) {
+                  for (byte j = 0; j < colNum; j++) {
+                    if(currentState[i][j] == LOW){//落
+                      if(!left_right_which){
+                        u8g.drawBox((key_BoxX*(rowNum-1-i)), (key_BoxY*j), key_BoxX, key_BoxY);
+                      }else{
+                        u8g.drawBox((key_BoxX*i), (key_BoxY*j), key_BoxX, key_BoxY);
+                      }
+                    /*}else{
+                      if(!left_right_which){
+                        u8g.drawFrame((key_BoxX*(rowNum-1-i)), (key_BoxY*j), key_BoxX, key_BoxY);
+                      }else{
+                        u8g.drawFrame((key_BoxX*i), (key_BoxY*j), key_BoxX, key_BoxY);
+                      }*/
+                    }
+                  }
+                }
+              } while ( u8g.nextPage() );
             }
           }
         }
+      }
+      //////////////////////////////////////////
+      if (JSkeyMap[0] == MC_P) {
+        for (int i = 0; i < 2; i++) {
+          if (pos[i] != 0) {
+            if (pos[i] >= PDz || pos[i] <= -PDz) {
+              M_point[i] = pos[i] / 220;
+              if (i == 0)Mouse.move(M_point[0], 0 , 0);
+              if (i == 1)Mouse.move(0, M_point[1], 0);
+            } else {
+              M_PP[i] = map( pos[i], 0, PDz - 1, 3, 1);
+              if (MTime[i] + M_PP[i] < millis()) {
+                if (i == 0){
+                  if (pos[i] > 0)Mouse.move(1, 0 , 0);
+                  if (pos[i] < 0)Mouse.move(-1, 0 , 0);
+                }else if (i == 1){
+                  if (pos[i] < 1)Mouse.move(0 , -1 , 0);
+                  if (pos[i] > 1)Mouse.move(0 , 1 , 0);
+                }
+                MTime[i] = millis();
+              }
+            }
+          }
+        }
+      } else {
         for (int i = 0; i < 4; i++) {
           if (beforeJS[i] != currentJS[i]) {
-            if (currentJS[i]) {
+            if (currentJS[i] == true) {
+              key_press(JSkeyMap[left_right_which][i]);
               ser1_send_joy = 0b0000 << 4 | i << 2 | 1 << 1 | 0;//0000 00 0 0
-            } else {
+            } else if (currentJS[i] == false) {
+              key_release(JSkeyMap[left_right_which][i]);
               ser1_send_joy = 0b0000 << 4 | i << 2 | 0 << 1 | 0;//0000 00 0 0
             }
             Serial1.write(ser1_send_joy);
           }
           beforeJS[i] = currentJS[i];
         }
-        break;
       }
-    }*/
+      break;
+    }/////////////////////////////////////////////ser1受信処理↓
+    //////////////////// mode  joy  keypush?  0:joy?1:key?  | row  col keypush? 0:joy?1:key?
+    //////////////////// 0000   00      0           0       | 000  000    0          1
+    byte ser1_count = Serial1.available();//受信数を記録
+    if(ser1_count){//１つでも受信しているなら実行
+      for(byte i = 0; i < ser1_count; i++){//複数ある場合繰り返して実行
+        ser1_recv = Serial1.read();
+        if(ser1_recv & 1){//キー座標処理
+          ser1_keyState = ser1_recv >> 1 & 0b00000001;
+          ser1_col = ser1_recv >> 2 & 0b00000111;
+          ser1_row = ser1_recv >> 5 & 0b00000111;
+
+          if(ser1_keyState){
+            key_press(keyMap[!left_right_which][ser1_row][ser1_col]);
+          }else{
+            key_release(keyMap[!left_right_which][ser1_row][ser1_col]);
+          }
+
+        }else{//キー状態、ジョイスティック、モード処理
+          ser1_joyState = ser1_recv >> 1 & 0b00000001;
+          ser1_joynum = ser1_recv >> 2 & 0b00000011;
+          ser1_mode = ser1_recv >> 4 & 0b00001111;
+
+          if(ser1_mode){
+
+          }else{
+            if(ser1_joyState){
+              key_press(JSkeyMap[!left_right_which][ser1_joynum]);
+            }else{
+              key_release(JSkeyMap[!left_right_which][ser1_joynum]);
+            }
+          }
+        }
+      }
+    }
   }
 }
